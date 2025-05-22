@@ -50,10 +50,7 @@ st.markdown("Selecione a pasta que contém as subpastas com as planilhas e cliqu
 
 base_dir = get_base_dir()
 
-if not base_dir.exists() or not base_dir.is_dir():
-    st.error(f"Diretório inválido: {base_dir}")
-else:
-    if st.button("Iniciar Processamento"):
+if st.button("Iniciar Processamento"):
         mother_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
         total_files = sum(
             len(list(child.glob("*.xlsx")))
