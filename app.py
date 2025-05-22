@@ -13,10 +13,11 @@ warnings.filterwarnings(
     message="File contains an invalid specification for 0. This will be removed"
 )
 
-
-st.set_page_config(page_title="SPDO Resumo de Fichas Técnicas", page_icon="logo_fgv.png")
+st.set_page_config(page_title="SPDO Resumo de Fichas Técnicas", page_icon="logo_fgv.png", layout="wide")
 st.logo('logo_ibre.png')
+
 # Funções utilitárias
+
 def safe_cell(ws, cell_ref, default="-"):
     try:
         if ws is None:
@@ -32,7 +33,7 @@ def safe_cell(ws, cell_ref, default="-"):
 def format_date(val, default="-"):
     if isinstance(val, (datetime.date, datetime.datetime)):
         return val.strftime("%d/%m/%Y")
-    return val
+    return default
 
 # Determina o diretório padrão ao lado do script/exe
 if getattr(sys, "frozen", False):
@@ -40,59 +41,67 @@ if getattr(sys, "frozen", False):
 else:
     script_dir = Path(__file__).parent
 
+
 def get_base_dir():
-    default = "W:\Planejamento e Controle - Coleta de Dados\PC Construção e Indústria\Levantamento de fichas Tecnicas\Fichas Tecnicas"
+    default = script_dir / "Fichas Tecnicas"
     user_input = st.text_input("Caminho da pasta de dados (ex: Fichas Tecnicas):", str(default))
-    return Path(user_input)
+    path = Path(user_input)
+    if not path.exists() or not path.is_dir():
+        st.error("🚫 Caminho inválido ou não é um diretório")
+        return None
+    return path
+
+# Função para exibir conteúdo de pasta
+
+# Layout da aplicação
 
 st.title("Resumo de Fichas Técnicas")
 st.markdown("Selecione a pasta que contém as subpastas com as planilhas e clique em Iniciar.")
 
 base_dir = get_base_dir()
 
-if st.button("Iniciar Processamento"):
-        mother_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
-        total_files = sum(
-            len(list(child.glob("*.xlsx")))
-            for mother in mother_dirs
-            for child in mother.iterdir() if child.is_dir()
-        )
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+if st.button("Iniciar Processamento") and base_dir:
+    mother_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
+    total_files = sum(
+        len(list(child.glob("*.xlsx")))
+        for mother in mother_dirs
+        for child in mother.iterdir() if child.is_dir()
+    )
+    progress_bar = st.progress(0)
+    status_text = st.empty()
 
-        file_count = 0
-        data_by_mother = {m.name: [] for m in mother_dirs}
-        start = time.perf_counter()
+    file_count = 0
+    data_by_mother = {m.name: [] for m in mother_dirs}
+    start = time.perf_counter()
 
-        for mother in mother_dirs:
-            for child in mother.iterdir():
-                if not child.is_dir():
-                    continue
-                tipo = (
-                    "Materiais" if "Materiais" in child.name else
-                    "Equipamentos" if "Equipamentos" in child.name else
-                    child.name
-                )
-                for xlsx in child.glob("*.xlsx"):
-                    file_count += 1
-                    progress_bar.progress(file_count / total_files)
-                    status_text.text(f"Processando {file_count}/{total_files}: {mother.name}/{child.name}/{xlsx.name}")
+    for mother in mother_dirs:
+        for child in mother.iterdir():
+            if not child.is_dir():
+                continue
+            tipo = (
+                "Materiais" if "Materiais" in child.name else
+                "Equipamentos" if "Equipamentos" in child.name else
+                child.name
+            )
+            for xlsx in child.glob("*.xlsx"):
+                file_count += 1
+                progress_bar.progress(file_count / total_files)
+                status_text.text(f"Processando {file_count}/{total_files}: {mother.name}/{child.name}/{xlsx.name}")
 
-                    wb = load_workbook(xlsx, read_only=True, data_only=True)
-                    nome_mother = mother.name.upper()
-                    if nome_mother == "ECON-DNIT" and tipo == "Equipamentos":
-                        ws = wb["Ficha de insumo"] if "Ficha de insumo" in wb.sheetnames else wb.active
-                    elif len(wb.sheetnames) > 1:
-                        ws = wb.worksheets[0]
-                    elif len(wb.sheetnames) == 1:
-                        ws = wb.active
-                    else:
-                        ws = None
+                wb = load_workbook(xlsx, read_only=True, data_only=True)
+                nome_mother = mother.name.upper()
+                if nome_mother == "ECON-DNIT" and tipo == "Equipamentos":
+                    ws = wb["Ficha de insumo"] if "Ficha de insumo" in wb.sheetnames else wb.active
+                elif len(wb.sheetnames) > 1:
+                    ws = wb.worksheets[0]
+                elif len(wb.sheetnames) == 1:
+                    ws = wb.active
+                else:
+                    ws = None
 
-                    nome_arquivo = xlsx.stem
-                    nome_arquivo = xlsx.stem
+                nome_arquivo = xlsx.stem
 
-            # Definição de células
+                # Definição de células específicas por cliente
                 if nome_mother == "CAGECE":
                     criac_ref, atual_ref, ext_ref = "D5", "H5", "K9"
                 elif nome_mother == "DER-MG":
@@ -138,35 +147,34 @@ if st.button("Iniciar Processamento"):
                 else:
                     criac_ref, atual_ref, ext_ref = "D5", "H5", "K9"
 
+                raw_criacao     = safe_cell(ws, criac_ref)
+                raw_atualizacao = safe_cell(ws, atual_ref)
+                raw_externo     = safe_cell(ws, ext_ref)
 
-                    raw_criacao     = safe_cell(ws, criac_ref)
-                    raw_atualizacao = safe_cell(ws, atual_ref)
-                    raw_externo     = safe_cell(ws, ext_ref)
+                criacao_fmt     = format_date(raw_criacao)
+                atualizacao_fmt = format_date(raw_atualizacao)
 
-                    criacao_fmt     = format_date(raw_criacao)
-                    atualizacao_fmt = format_date(raw_atualizacao)
+                data_by_mother[mother.name].append({
+                    "Arquivo":        xlsx.name,
+                    "Tipo":           tipo,
+                    "Criação":        criacao_fmt,
+                    "Atualização":    atualizacao_fmt,
+                    "Código Externo": raw_externo,
+                })
 
-                    data_by_mother[mother.name].append({
-                        "Arquivo":        xlsx.name,
-                        "Tipo":           tipo,
-                        "Criação":        criacao_fmt,
-                        "Atualização":    atualizacao_fmt,
-                        "Código Externo": raw_externo,
-                    })
+    elapsed = time.perf_counter() - start
+    st.success(f"Processamento concluído em {elapsed:.2f} segundos!")
 
-        elapsed = time.perf_counter() - start
-        st.success(f"Processamento concluído em {elapsed:.2f} segundos!")
+    # Gera arquivo Excel para download
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        for sheet, recs in data_by_mother.items():
+            pd.DataFrame(recs).to_excel(writer, sheet_name=sheet[:31], index=False)
+    buffer.seek(0)
 
-        # Gera arquivo Excel para download
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            for sheet, recs in data_by_mother.items():
-                pd.DataFrame(recs).to_excel(writer, sheet_name=sheet[:31], index=False)
-        buffer.seek(0)
-
-        st.download_button(
-            "📥 Baixar Resumo como Excel",
-            data=buffer,
-            file_name="Resumo_Fichas_Tecnicas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        "📥 Baixar Resumo como Excel",
+        data=buffer,
+        file_name="Resumo_Fichas_Tecnicas.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
